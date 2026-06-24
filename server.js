@@ -164,8 +164,8 @@ app.get('/api/surveys', async (req, res) => {
                             const bVal = (row['시설명'] || row['명칭'] || getVal(['시설', 'name']) || '').toString().trim();
                             const hVal = (row['통합본'] || '').toString().trim();
                             if (bVal) {
-                                // 이미 줄바꿈이 있는 경우 이중 추가 방지
-                                const combined = hVal && !bVal.includes(hVal) ? `${bVal}\n(${hVal})` : bVal;
+                                // H열(통합본) 값이 존재하면, B열 내용에 포함되어 있더라도 무조건 괄호로 추가
+                                const combined = hVal && bVal !== hVal ? `${bVal}\n(${hVal})` : bVal;
                                 if (!nameList.includes(combined)) nameList.push(combined);
                             }
                             
