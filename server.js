@@ -252,6 +252,29 @@ app.get('/api/surveys', async (req, res) => {
 
         if (data && data.length > 0) {
             console.log(`Processing ${data.length} surveys...`);
+            
+            // DB에서 '완료' 처리된 목록을 가져와 엑셀 데이터에 병합(Merge)
+            try {
+                if (supabase) {
+                    const { data: sbData, error } = await supabase
+                        .from('surveys')
+                        .select('연번, 실태조사 완료여부')
+                        .eq('실태조사 완료여부', '완료');
+                    
+                    if (!error && sbData && sbData.length > 0) {
+                        const completedIds = new Set(sbData.map(r => r['연번']));
+                        data.forEach(item => {
+                            // DB에 완료 기록이 있으면 엑셀 원본(대기) 상태를 '완료'로 덮어씀
+                            if (completedIds.has(item.id)) {
+                                item.status = '완료';
+                            }
+                        });
+                        console.log(`Merged ${completedIds.size} completed status from database.`);
+                    }
+                }
+            } catch (dbErr) {
+                console.error("Supabase merge error:", dbErr.message);
+            }
         }
 
         const surveysWithCoords = [];
