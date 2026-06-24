@@ -7,7 +7,7 @@
     "start": "node server.js",
     "dev": "vite",
     "build": "npx vite build",
-    "render-build": "npm install && npm run build",
+    "render-build": "npm install && chmod +x node_modules/.bin/vite && npm run build",
     "serve": "node server.js"
   },
   "dependencies": {
