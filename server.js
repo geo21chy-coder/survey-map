@@ -7,6 +7,9 @@ const { createClient } = require('@supabase/supabase-js');
 const xlsx = require('xlsx');
 require('dotenv').config();
 
+// 임시 로컬 캐시: Supabase DB가 다운되었거나 네트워크 에러 시 서버 메모리에 완료 상태 유지
+const completedLocalCache = new Set();
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -264,8 +267,8 @@ app.get('/api/surveys', async (req, res) => {
                     if (!error && sbData && sbData.length > 0) {
                         const completedIds = new Set(sbData.map(r => r['연번']));
                         data.forEach(item => {
-                            // DB에 완료 기록이 있으면 엑셀 원본(대기) 상태를 '완료'로 덮어씀
                             if (completedIds.has(item.id)) {
+                                completedLocalCache.add(item.id); // DB 정보를 로컬 캐시에 백업
                                 item.status = '완료';
                             }
                         });
@@ -274,6 +277,16 @@ app.get('/api/surveys', async (req, res) => {
                 }
             } catch (dbErr) {
                 console.error("Supabase merge error:", dbErr.message);
+            }
+            
+            // 2차 백업 머지: DB 접속 실패/무시 상황을 대비해 로컬 캐시(메모리)에 있는 완료 상태 강제 덮어쓰기
+            if (completedLocalCache.size > 0) {
+                data.forEach(item => {
+                    if (completedLocalCache.has(item.id)) {
+                        item.status = '완료';
+                    }
+                });
+                console.log(`Merged ${completedLocalCache.size} completed status from local fallback cache.`);
             }
         }
 
@@ -312,7 +325,10 @@ app.post('/api/surveys/:id/complete', async (req, res) => {
     const today = new Date().toISOString().split('T')[0];
     
     try {
-        // Update status in Supabase table (에러 발생 시에도 프론트엔드 UI 업데이트를 위해 무시)
+        // 1. 메모리 캐시에 즉각 저장 (DB가 죽어도 새로고침 시 유지되도록)
+        completedLocalCache.add(id);
+
+        // 2. Update status in Supabase table (에러 발생 시에도 프론트엔드 UI 업데이트를 위해 무시)
         try {
             const { data, error } = await supabase
                 .from('surveys')
