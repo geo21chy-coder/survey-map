@@ -53,14 +53,21 @@ if (fs.existsSync(CACHE_FILE)) {
 }
 
 function saveCache() {
-    fs.writeFileSync(CACHE_FILE, JSON.stringify(coordCache, null, 2), 'utf-8');
+    try {
+        fs.writeFileSync(CACHE_FILE, JSON.stringify(coordCache, null, 2), 'utf-8');
+    } catch (e) {
+        console.error("Error saving cache:", e);
+    }
 }
+
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 async function getCoordinates(address) {
     if (!address) return null;
     if (coordCache[address]) return coordCache[address];
 
     try {
+        await delay(50); // Rate limit protection
         const response = await axios.get('https://dapi.kakao.com/v2/local/search/address.json', {
             params: { query: address },
             headers: { Authorization: `KakaoAK ${KAKAO_KEY}` }
@@ -70,7 +77,6 @@ async function getCoordinates(address) {
             const { x, y } = response.data.documents[0];
             const coords = { lat: parseFloat(y), lng: parseFloat(x) };
             coordCache[address] = coords;
-            saveCache();
             return coords;
         }
     } catch (e) {
@@ -238,14 +244,25 @@ app.get('/api/surveys', async (req, res) => {
             console.log(`Processing ${data.length} surveys...`);
         }
 
-        const surveysWithCoords = await Promise.all(data.map(async (item) => {
+        const surveysWithCoords = [];
+        let cacheUpdated = false;
+        
+        for (const item of data) {
+            const beforeCacheSize = Object.keys(coordCache).length;
             const coords = await getCoordinates(item.address);
-            return {
+            if (Object.keys(coordCache).length > beforeCacheSize) {
+                cacheUpdated = true;
+            }
+            surveysWithCoords.push({
                 ...item,
                 lat: coords ? coords.lat : null,
                 lng: coords ? coords.lng : null
-            };
-        }));
+            });
+        }
+        
+        if (cacheUpdated) {
+            saveCache();
+        }
 
         const validCoordsCount = surveysWithCoords.filter(s => s.lat).length;
         console.log(`Loaded ${surveysWithCoords.length} surveys. Valid coords: ${validCoordsCount}`);
