@@ -249,7 +249,6 @@ app.get('/api/surveys', async (req, res) => {
                 };
             });
         */
-        }
 
         if (data && data.length > 0) {
             console.log(`Processing ${data.length} surveys...`);
