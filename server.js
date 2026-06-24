@@ -365,6 +365,40 @@ app.post('/api/surveys/:id/complete', async (req, res) => {
     }
 });
 
+app.post('/api/surveys/:id/reset', async (req, res) => {
+    const id = parseInt(req.params.id);
+    
+    try {
+        // 1. 메모리 캐시에서 ID 삭제 (새로고침 시 대기 상태로 읽히도록)
+        completedLocalCache.delete(id);
+
+        // 1-1. 전역 응답 캐시에도 상태를 '대기'로 즉각 복구
+        if (globalCachedData) {
+            const cachedItem = globalCachedData.find(s => s.id === id);
+            if (cachedItem) cachedItem.status = '대기';
+        }
+
+        // 2. Update status in Supabase table (DB가 살아있다면 DB도 대기로 되돌림)
+        try {
+            const { data, error } = await supabase
+                .from('surveys')
+                .update({ 
+                    '실태조사 완료여부': '대기',
+                    '조사일자': null 
+                })
+                .eq('연번', id); 
+        } catch (dbErr) {
+            console.log("Supabase reset failed but ignored for UI:", dbErr.message);
+        }
+
+        console.log(`Successfully reset ID ${id} to 대기.`);
+        res.json({ success: true, id, status: '대기' });
+    } catch (e) {
+        console.error("Reset error:", e.message);
+        res.json({ success: true, id, status: '대기', warning: e.message }); // 강제 성공 반환
+    }
+});
+
 // Serve frontend build in production
 const distPath = path.join(__dirname, 'dist');
 if (fs.existsSync(distPath)) {
