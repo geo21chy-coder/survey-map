@@ -276,7 +276,7 @@ function App() {
                         )}
                         {survey.chargerType && <div className="text-[11px] text-gray-600"><span className="font-semibold text-gray-500">타입:</span> {survey.chargerType}</div>}
                         {survey.chargerCapacity && <div className="text-[11px] text-gray-600"><span className="font-semibold text-gray-500">용량:</span> {survey.chargerCapacity}</div>}
-                        {survey.detailLocation && <div className="text-[11px] text-gray-600"><span className="font-semibold text-gray-500">위치:</span> {survey.detailLocation}</div>}
+                        {survey.detailLocation && <div className="text-[11px] text-gray-600 break-words whitespace-normal"><span className="font-semibold text-gray-500">위치:</span> {survey.detailLocation}</div>}
                       </div>
 
                       <div className="flex items-center justify-between pt-1">
