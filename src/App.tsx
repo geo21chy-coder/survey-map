@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Map, CustomOverlayMap } from 'react-kakao-maps-sdk';
-import { Filter, CheckCircle, MapPin, Loader2, RefreshCw, X } from 'lucide-react';
+import { Filter, CheckCircle, MapPin, Loader2, RefreshCw, X, Menu } from 'lucide-react';
 
 // High-contrast vibrant colors for better visibility
 const getMarkerColor = (surveyor: string) => {
@@ -46,10 +46,12 @@ function App() {
   const [mapCenter, setMapCenter] = useState({ lat: 35.1595, lng: 126.8526 });
   const [currentZoom, setCurrentZoom] = useState(4); // 카카오 줌레벨 (낮을수록 확대)
   const [selectedMarkerId, setSelectedMarkerId] = useState<number | null>(null);
+  const [showStatsModal, setShowStatsModal] = useState(false); // 현황 모달 토글
 
   const fetchData = async () => {
     setLoading(true);
     setSelectedMarkerId(null);
+    setShowStatsModal(false);
     try {
       const res = await fetch('/api/surveys');
       const data = await res.json();
@@ -135,50 +137,106 @@ function App() {
   const showLabels = currentZoom <= 4;
 
   return (
-    <div className="flex flex-col h-full w-full font-sans text-gray-900 bg-gray-50">
-      <header className="bg-white/80 backdrop-blur-md shadow-sm z-[1000] px-6 py-4 flex justify-between items-center border-b border-gray-100">
-        <div className="flex items-center gap-2">
-          <div className="p-2 bg-yellow-400 rounded-lg shadow-yellow-200 shadow-lg">
+    <div className="flex flex-col h-full w-full font-sans text-gray-900 bg-gray-50 relative">
+      <header className="absolute top-0 w-full bg-white/80 backdrop-blur-md shadow-sm z-[2000] px-4 py-3 flex justify-between items-center border-b border-gray-100">
+        <div className="flex items-center">
+          <div className="p-2 bg-yellow-400 rounded-lg shadow-yellow-200 shadow-lg cursor-pointer active:scale-95 transition-transform" onClick={() => setMapCenter({ lat: 35.1595, lng: 126.8526 })}>
             <MapPin className="text-gray-900" size={20} />
           </div>
-          <h1 className="text-xl font-black tracking-tight text-gray-800 ml-2">카카오 조사 위치 확인</h1>
         </div>
         
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 bg-white rounded-xl px-4 py-2 border border-gray-200 shadow-sm">
-            <Filter size={14} className="text-gray-400" />
-            <select 
-              className="bg-transparent border-none focus:ring-0 text-sm font-bold text-gray-700"
-              value={selectedSurveyor}
-              onChange={(e) => {
-                setSelectedSurveyor(e.target.value);
-                setSelectedMarkerId(null); // 필터 변경 시 팝업 닫기
-              }}
-            >
-              {surveyors.map(name => (
-                <option key={name} value={name}>
-                  {name === 'all' ? '모든 조사자' : name}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className="flex items-center gap-2 relative">
+          <button 
+            onClick={() => setShowStatsModal(!showStatsModal)}
+            className={`p-2.5 rounded-xl border transition-all shadow-sm active:scale-95 flex items-center justify-center ${showStatsModal || selectedSurveyor !== 'all' ? 'bg-blue-50 border-blue-200 text-blue-600' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-600'}`}
+            title="필터 및 현황"
+          >
+            <Filter size={18} />
+            {selectedSurveyor !== 'all' && (
+              <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
+              </span>
+            )}
+          </button>
           
           <button 
             onClick={fetchData}
-            className="p-2.5 hover:bg-gray-50 rounded-xl border border-gray-200 transition-all bg-white shadow-sm active:scale-95"
+            className="p-2.5 hover:bg-gray-50 rounded-xl border border-gray-200 transition-all bg-white shadow-sm active:scale-95 text-gray-600"
             title="새로고침"
           >
-            <RefreshCw size={18} className={loading ? "animate-spin text-blue-600" : "text-gray-600"} />
+            <RefreshCw size={18} className={loading ? "animate-spin text-blue-600" : ""} />
           </button>
+
+          {/* 모바일 최적화 드롭다운 현황 모달 */}
+          {showStatsModal && (
+            <div className="absolute top-[52px] right-0 bg-white/95 backdrop-blur-xl p-5 rounded-2xl shadow-2xl z-[2500] border border-gray-100 w-[220px] origin-top-right animate-in fade-in zoom-in duration-200">
+              <div className="flex justify-between items-center mb-4">
+                <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">조사자 별 현황 & 필터</h4>
+                <button onClick={() => setShowStatsModal(false)} className="text-gray-400 hover:text-gray-700 p-1 bg-gray-50 rounded-full">
+                  <X size={14} />
+                </button>
+              </div>
+              
+              <div className="flex flex-col gap-2.5">
+                <div 
+                  className={`flex items-center justify-center py-2 px-3 rounded-lg cursor-pointer transition-colors text-sm font-bold border ${selectedSurveyor === 'all' ? 'bg-gray-900 text-white border-gray-900' : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'}`}
+                  onClick={() => {
+                    setSelectedSurveyor('all');
+                    setSelectedMarkerId(null);
+                    setShowStatsModal(false);
+                  }}
+                >
+                  모든 조사자 보기
+                </div>
+                
+                <div className="my-1 border-t border-gray-100"></div>
+
+                {surveyors.filter(name => name !== 'all').map(name => {
+                  const stats = getSurveyorStats(name);
+                  const color = getMarkerColor(name);
+                  const isSelected = selectedSurveyor === name;
+                  return (
+                    <div 
+                      key={name} 
+                      className={`flex justify-between items-center text-sm cursor-pointer p-2 -mx-2 rounded-lg transition-colors border border-transparent ${isSelected ? 'bg-blue-50 border-blue-100 font-bold' : 'hover:bg-gray-50'}`}
+                      onClick={() => {
+                        setSelectedSurveyor(isSelected ? 'all' : name);
+                        setSelectedMarkerId(null);
+                        if (!isSelected) setShowStatsModal(false); // 선택하면 자동으로 닫기 (토글 해제시는 유지)
+                      }}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-3 h-3 rounded-full shadow-sm border border-black/10" style={{ backgroundColor: color }}></div>
+                        <span className={isSelected ? 'text-blue-700' : 'text-gray-700'}>{name}</span>
+                      </div>
+                      <span className={`font-mono px-2 py-0.5 rounded-md text-[11px] ${isSelected ? 'bg-blue-100 text-blue-800' : 'bg-gray-100'}`}>
+                        <span className="font-black">{stats.completed}</span>
+                        <span className="text-gray-400 mx-1">/</span>
+                        <span className="text-gray-500">{stats.total}</span>
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              
+              <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between items-center bg-gray-50 p-3 rounded-xl">
+                <span className="text-xs font-bold text-gray-600">총 진행률</span>
+                <span className="text-sm font-black text-blue-600">
+                  {Math.round((surveys.filter(s => s.status === '완료').length / (surveys.length || 1)) * 100)}%
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       </header>
 
-      <main className="flex-1 relative overflow-hidden">
+      <main className="flex-1 relative overflow-hidden mt-[60px]">
         {loading && (
-          <div className="absolute inset-0 bg-white/40 backdrop-blur-[4px] z-[2000] flex items-center justify-center">
+          <div className="absolute inset-0 bg-white/40 backdrop-blur-[4px] z-[3000] flex items-center justify-center">
             <div className="bg-white p-8 rounded-3xl shadow-2xl flex flex-col items-center gap-4">
               <Loader2 className="animate-spin text-blue-600" size={48} />
-              <p className="font-bold text-gray-800 text-lg">데이터 분석 중...</p>
+              <p className="font-bold text-gray-800 text-lg">데이터 불러오는 중...</p>
             </div>
           </div>
         )}
@@ -190,7 +248,10 @@ function App() {
           level={currentZoom}
           onZoomChanged={(map) => setCurrentZoom(map.getLevel())}
           onDragEnd={(map) => setMapCenter({ lat: map.getCenter().getLat(), lng: map.getCenter().getLng() })}
-          onClick={() => setSelectedMarkerId(null)} // 빈 공간 클릭 시 팝업 닫기
+          onClick={() => {
+            setSelectedMarkerId(null);
+            setShowStatsModal(false); // 빈 공간 클릭 시 현황 모달도 닫기
+          }}
         >
           {filteredSurveys.map(survey => {
             if (!survey.lat || !survey.lng) return null;
@@ -212,6 +273,7 @@ function App() {
                     onClick={(e) => {
                       e.stopPropagation();
                       setSelectedMarkerId(isSelected ? null : survey.id);
+                      setShowStatsModal(false); // 마커 클릭 시 현황 모달 닫기
                     }}
                   >
                     <div style={{ width: '40px', height: '50px' }} dangerouslySetInnerHTML={{ __html: createMarkerSvg(survey.surveyor, isCompleted) }} />
@@ -316,46 +378,8 @@ function App() {
             );
           })}
         </Map>
-        
-        <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-md p-5 rounded-2xl shadow-xl z-[1000] border border-white/50 min-w-[160px]">
-          <div className="flex flex-col gap-4">
-            <div>
-              <h4 className="text-[10px] font-black text-gray-400 mb-3 uppercase tracking-widest">조사자 별 현황</h4>
-              <div className="flex flex-col gap-2.5">
-                {surveyors.filter(name => name !== 'all').map(name => {
-                  const stats = getSurveyorStats(name);
-                  const color = getMarkerColor(name);
-                  const isSelected = selectedSurveyor === name;
-                  return (
-                    <div 
-                      key={name} 
-                      className={`flex justify-between items-center text-sm cursor-pointer hover:bg-gray-50 p-1 -mx-1 rounded-md transition-colors ${isSelected ? 'font-bold' : ''}`}
-                      onClick={() => setSelectedSurveyor(isSelected ? 'all' : name)}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className="w-2.5 h-2.5 rounded-full shadow-sm" style={{ backgroundColor: color }}></div>
-                        <span className="text-gray-700">{name}</span>
-                      </div>
-                      <span className="font-mono bg-gray-100 px-2 py-0.5 rounded-md text-xs">
-                        <span className="text-gray-900 font-bold">{stats.completed}</span>
-                        <span className="text-gray-400 mx-1">/</span>
-                        <span className="text-gray-500">{stats.total}</span>
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-            
-            <div className="pt-4 border-t border-gray-100 flex justify-between items-center">
-              <span className="text-xs font-bold text-gray-600">총 진행률</span>
-              <span className="text-sm font-black text-blue-600">
-                {Math.round((surveys.filter(s => s.status === '완료').length / (surveys.length || 1)) * 100)}%
-              </span>
-            </div>
-          </div>
-        </div>
 
+        {/* 카운트 위젯 (하단 중앙) */}
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-gray-900/90 backdrop-blur-sm text-white px-5 py-2.5 rounded-full shadow-2xl z-[1000] flex items-center gap-2 text-xs font-bold border border-white/10">
           <CheckCircle size={14} className="text-green-400" />
           <span>{filteredSurveys.length}개의 지점 표시 중</span>
