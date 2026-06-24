@@ -206,11 +206,15 @@ app.get('/api/surveys', async (req, res) => {
                     break;
                 } catch (err) {
                     console.error("Excel parsing error:", err);
+                    return res.status(500).json({ error: "Excel parsing failed", details: err.message, stack: err.stack, file: filePath });
                 }
             }
         }
 
         if (!excelFileFound) {
+            return res.status(500).json({ error: "No excel file found. Tried: " + fileNamesToTry.join(', ') });
+        }
+        /* Fallback logic disabled for debugging
             let { data: sbData, error } = await supabase
                 .from('surveys')
                 .select('*')
@@ -244,6 +248,7 @@ app.get('/api/surveys', async (req, res) => {
                     surveyor: row['조사자'] || row['조사자5'] || getVal(['조사', 'surveyor']) || '미지정'
                 };
             });
+        */
         }
 
         if (data && data.length > 0) {
