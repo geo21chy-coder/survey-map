@@ -9,6 +9,8 @@ require('dotenv').config();
 
 // 임시 로컬 캐시: Supabase DB가 다운되었거나 네트워크 에러 시 서버 메모리에 완료 상태 유지
 const completedLocalCache = new Set();
+// 초기 로딩 속도 극대화를 위한 전역 메모리 캐시
+let globalCachedData = null;
 
 const app = express();
 app.use(cors());
@@ -102,6 +104,11 @@ app.get('/api/surveys', async (req, res) => {
     res.setHeader('Surrogate-Control', 'no-store');
 
     try {
+        if (globalCachedData) {
+            // 이미 메모리에 캐시된 데이터가 있다면 복잡한 파싱 및 DB조회 생략하고 즉시 응답 (속도 대폭 향상)
+            return res.json(globalCachedData);
+        }
+
         let data = [];
         const fileNamesToTry = ['survey_data_v2.xlsx', '조사1.xlsx', '조사.xlsx'];
         let excelFileFound = false;
@@ -313,6 +320,9 @@ app.get('/api/surveys', async (req, res) => {
         const validCoordsCount = surveysWithCoords.filter(s => s.lat).length;
         console.log(`Loaded ${surveysWithCoords.length} surveys. Valid coords: ${validCoordsCount}`);
         
+        // 완성된 데이터를 전역 변수에 저장하여 다음 요청부터는 0.01초만에 응답하도록 처리
+        globalCachedData = surveysWithCoords;
+
         res.json(surveysWithCoords);
     } catch (e) {
         console.error("Fetch error:", e.message);
@@ -327,6 +337,12 @@ app.post('/api/surveys/:id/complete', async (req, res) => {
     try {
         // 1. 메모리 캐시에 즉각 저장 (DB가 죽어도 새로고침 시 유지되도록)
         completedLocalCache.add(id);
+
+        // 1-1. 전역 응답 캐시(초기 로딩 속도 최적화용)에도 상태를 즉각 반영
+        if (globalCachedData) {
+            const cachedItem = globalCachedData.find(s => s.id === id);
+            if (cachedItem) cachedItem.status = '완료';
+        }
 
         // 2. Update status in Supabase table (에러 발생 시에도 프론트엔드 UI 업데이트를 위해 무시)
         try {
