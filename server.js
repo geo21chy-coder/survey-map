@@ -92,9 +92,15 @@ app.get('/api/config', (req, res) => {
 });
 
 app.get('/api/surveys', async (req, res) => {
+    // 강력한 브라우저 캐시 방지 헤더 추가
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.setHeader('Surrogate-Control', 'no-store');
+
     try {
         let data = [];
-        const fileNamesToTry = ['조사1.xlsx', '조사.xlsx'];
+        const fileNamesToTry = ['survey_data_v2.xlsx', '조사1.xlsx', '조사.xlsx'];
         let excelFileFound = false;
 
         for (const fname of fileNamesToTry) {
