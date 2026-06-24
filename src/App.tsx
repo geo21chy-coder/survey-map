@@ -205,6 +205,7 @@ function App() {
                   position={{ lat: survey.lat, lng: survey.lng }}
                   yAnchor={1} // 마커 핀 하단이 좌표에 위치하도록 설정
                   zIndex={isSelected ? 100 : 1}
+                  clickable={true}
                 >
                   <div 
                     style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', width: '40px', cursor: 'pointer' }}
@@ -242,6 +243,7 @@ function App() {
                     position={{ lat: survey.lat, lng: survey.lng }} 
                     yAnchor={1} 
                     zIndex={200}
+                    clickable={true}
                   >
                     <div 
                       className="bg-white rounded-2xl shadow-2xl border border-gray-100 flex flex-col p-4 w-[280px]"
