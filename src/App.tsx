@@ -154,6 +154,33 @@ function App() {
     }
   };
 
+  const handleReset = async (id: number) => {
+    if (!confirm('완료 상태를 취소하고 대기 상태로 되돌리시겠습니까?')) return;
+    
+    try {
+      const res = await fetch(`/api/surveys/${id}/reset`, { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      if (res.ok) {
+        setSurveys(prev => prev.map(s => s.id === id ? { ...s, status: '대기' } : s));
+        // 초기화 후 팝업 닫기
+        setTimeout(() => {
+          const closeBtn = document.querySelector('.leaflet-popup-close-button');
+          if (closeBtn instanceof HTMLElement) {
+            closeBtn.click();
+          }
+        }, 50);
+      } else {
+        const err = await res.json();
+        alert(`초기화 실패: ${err.error}`);
+      }
+    } catch (e) {
+      console.error("Failed to reset status:", e);
+      alert('오류가 발생했습니다.');
+    }
+  };
+
   const surveyors = ['all', ...new Set(surveys.map(s => s.surveyor).filter(Boolean))];
   
   const getSurveyorStats = (name: string) => {
@@ -272,7 +299,7 @@ function App() {
                         <span className="text-sm font-bold text-gray-700">{survey.surveyor}</span>
                       </div>
                       
-                      {!isCompleted && (
+                      {!isCompleted ? (
                         <button 
                           onClick={(e) => {
                             e.stopPropagation();
@@ -281,6 +308,16 @@ function App() {
                           className="bg-gray-900 hover:bg-black text-white text-xs px-4 py-2 rounded-lg font-bold transition-all"
                         >
                           완료 처리
+                        </button>
+                      ) : (
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleReset(survey.id);
+                          }}
+                          className="bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs px-4 py-2 rounded-lg font-bold transition-all"
+                        >
+                          완료 취소
                         </button>
                       )}
                     </div>
