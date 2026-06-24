@@ -137,6 +137,13 @@ function App() {
       });
       if (res.ok) {
         setSurveys(prev => prev.map(s => s.id === id ? { ...s, status: '완료' } : s));
+        // 완료 처리 후 자동으로 팝업 닫기
+        setTimeout(() => {
+          const closeBtn = document.querySelector('.leaflet-popup-close-button');
+          if (closeBtn instanceof HTMLElement) {
+            closeBtn.click();
+          }
+        }, 50);
       } else {
         const err = await res.json();
         alert(`업데이트 실패: ${err.error}`);
