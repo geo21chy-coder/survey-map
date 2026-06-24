@@ -270,12 +270,12 @@ function App() {
                       <div className="bg-gray-50 rounded-lg p-3 mb-4 space-y-2 border border-gray-100">
                         {(survey.chargerStatus || survey.operatingAgency) && (
                           <div className="flex flex-col gap-1.5 mb-2 pb-2 border-b border-gray-200/60">
-                            {survey.chargerStatus && <div className="text-xs"><span className="font-bold text-gray-600">상태:</span> {survey.chargerStatus}</div>}
-                            {survey.operatingAgency && <div className="text-xs"><span className="font-bold text-gray-600">기관:</span> {survey.operatingAgency}</div>}
+                            {survey.chargerStatus && <div className="text-xs break-words whitespace-normal"><span className="font-bold text-gray-600">상태:</span> {survey.chargerStatus}</div>}
+                            {survey.operatingAgency && <div className="text-xs break-words whitespace-normal"><span className="font-bold text-gray-600">기관:</span> {survey.operatingAgency}</div>}
                           </div>
                         )}
-                        {survey.chargerType && <div className="text-[11px] text-gray-600"><span className="font-semibold text-gray-500">타입:</span> {survey.chargerType}</div>}
-                        {survey.chargerCapacity && <div className="text-[11px] text-gray-600"><span className="font-semibold text-gray-500">용량:</span> {survey.chargerCapacity}</div>}
+                        {survey.chargerType && <div className="text-[11px] text-gray-600 break-words whitespace-normal"><span className="font-semibold text-gray-500">타입:</span> {survey.chargerType}</div>}
+                        {survey.chargerCapacity && <div className="text-[11px] text-gray-600 break-words whitespace-normal"><span className="font-semibold text-gray-500">용량:</span> {survey.chargerCapacity}</div>}
                         {survey.detailLocation && <div className="text-[11px] text-gray-600 break-words whitespace-normal"><span className="font-semibold text-gray-500">위치:</span> {survey.detailLocation}</div>}
                       </div>
 
