@@ -19,6 +19,27 @@ app.use(express.json());
 const PORT = process.env.PORT || 3001;
 const KAKAO_KEY = process.env.KAKAO_REST_API_KEY;
 const CACHE_FILE = 'coordinates_cache.json';
+const COMPLETED_CACHE_FILE = 'completed_cache.json';
+
+// 완료 상태 로컬 파일 로드
+if (fs.existsSync(COMPLETED_CACHE_FILE)) {
+    try {
+        const fileData = JSON.parse(fs.readFileSync(COMPLETED_CACHE_FILE, 'utf-8'));
+        if (Array.isArray(fileData)) {
+            fileData.forEach(id => completedLocalCache.add(id));
+        }
+    } catch (e) {
+        console.error("Error loading completed cache:", e);
+    }
+}
+
+function saveCompletedCache() {
+    try {
+        fs.writeFileSync(COMPLETED_CACHE_FILE, JSON.stringify(Array.from(completedLocalCache)), 'utf-8');
+    } catch (e) {
+        console.error("Error saving completed cache:", e);
+    }
+}
 
 // Startup Environment Check
 console.log('--- 시스템 시작 환경 체크 ---');
@@ -45,6 +66,21 @@ app.get('/api/health', (req, res) => {
             hasVworld: !!process.env.VWORLD_API_KEY
         }
     });
+});
+
+// Supabase 및 Render 자동 휴면 방지(Keep-Alive) 엔드포인트
+app.get('/api/keepalive', async (req, res) => {
+    try {
+        // Supabase에 아주 가벼운 쿼리를 날려 활동(Activity)을 발생시킴
+        const { data, error } = await supabase.from('surveys').select('연번').limit(1);
+        res.json({
+            status: 'awake',
+            time: new Date().toISOString(),
+            supabase_ping: error ? 'error' : 'success'
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
 // Load or initialize coordinate cache
@@ -280,6 +316,7 @@ app.get('/api/surveys', async (req, res) => {
                             }
                         });
                         console.log(`Merged ${completedIds.size} completed status from database.`);
+                        saveCompletedCache(); // Save merged cache to file
                     }
                 }
             } catch (dbErr) {
@@ -337,6 +374,7 @@ app.post('/api/surveys/:id/complete', async (req, res) => {
     try {
         // 1. 메모리 캐시에 즉각 저장 (DB가 죽어도 새로고침 시 유지되도록)
         completedLocalCache.add(id);
+        saveCompletedCache();
 
         // 1-1. 전역 응답 캐시(초기 로딩 속도 최적화용)에도 상태를 즉각 반영
         if (globalCachedData) {
@@ -353,6 +391,9 @@ app.post('/api/surveys/:id/complete', async (req, res) => {
                     '조사일자': today 
                 })
                 .eq('연번', id); 
+            if (error) {
+                console.error("Supabase update error:", error.message || error);
+            }
         } catch (dbErr) {
             console.log("Supabase update failed but ignored for UI:", dbErr.message);
         }
@@ -371,6 +412,7 @@ app.post('/api/surveys/:id/reset', async (req, res) => {
     try {
         // 1. 메모리 캐시에서 ID 삭제 (새로고침 시 대기 상태로 읽히도록)
         completedLocalCache.delete(id);
+        saveCompletedCache();
 
         // 1-1. 전역 응답 캐시에도 상태를 '대기'로 즉각 복구
         if (globalCachedData) {
@@ -387,6 +429,9 @@ app.post('/api/surveys/:id/reset', async (req, res) => {
                     '조사일자': null 
                 })
                 .eq('연번', id); 
+            if (error) {
+                console.error("Supabase reset error:", error.message || error);
+            }
         } catch (dbErr) {
             console.log("Supabase reset failed but ignored for UI:", dbErr.message);
         }
