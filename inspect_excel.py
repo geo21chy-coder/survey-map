@@ -3,7 +3,7 @@ import json
 import os
 
 try:
-    df = pd.read_excel('조사.xlsx')
+    df = pd.read_excel('조사1.xlsx')
     df.columns = [str(c).replace('\n', ' ').strip() for c in df.columns]
     
     data = []

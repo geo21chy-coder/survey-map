@@ -43,21 +43,45 @@ async function syncData() {
             return mapped;
         });
 
-        // 4. Supabase로 업로드 (Insert)
+        // 4. 기존 DB에 있는 연번 목록 조회 (중복 추가 및 상태 덮어쓰기 방지)
+        console.log('기존 DB 데이터를 확인 중입니다...');
+        const { data: existingData, error: fetchError } = await supabase
+            .from('surveys')
+            .select('연번');
+            
+        if (fetchError) {
+            console.error('DB 조회 실패:', fetchError.message);
+            return;
+        }
+        
+        const existingIds = new Set(existingData.map(row => row['연번']));
+        
+        // 5. DB에 없는 새로운 데이터만 필터링
+        const newRowsToUpload = rowsToUpload.filter(row => !existingIds.has(row['연번']));
+        
+        if (newRowsToUpload.length === 0) {
+            console.log('--- 완료 ---');
+            console.log('새롭게 추가할 데이터가 없습니다. (모든 데이터가 이미 DB에 존재합니다.)');
+            return;
+        }
+        
+        console.log(`새로운 장소 ${newRowsToUpload.length}개를 DB에 추가합니다...`);
+
+        // 6. Supabase로 새로운 데이터만 업로드 (Insert)
         const { data, error } = await supabase
             .from('surveys')
-            .insert(rowsToUpload);
+            .insert(newRowsToUpload);
 
         if (error) {
             console.error('업로드 실패 상세 정보:');
             console.error(`에러 메시지: ${error.message}`);
             console.error(`에러 코드: ${error.code}`);
-            console.error('도움말: Supabase 테이블의 컬럼 이름이 [연번, 실태조사 완료여부, 시설명, 지번주소, 도로명주소, 조사자, 조사일자]와 일치하는지 확인하세요.');
+            console.error('도움말: Supabase 테이블의 컬럼 이름이 [연번, 실태조사 완료여부, 시설명, 지번주소, 조사자, 조사일자]와 일치하는지 확인하세요.');
             return;
         }
 
         console.log('--- 업로드 완료! ---');
-        console.log(`${localRows.length}개의 데이터가 성공적으로 동기화되었습니다.`);
+        console.log(`${newRowsToUpload.length}개의 새로운 장소가 성공적으로 DB에 등록되었습니다.`);
 
     } catch (e) {
         console.error('예기치 못한 오류 발생:', e.message);
