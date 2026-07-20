@@ -21,7 +21,18 @@ async function clearAndSync() {
             console.error('삭제 실패:', deleteError.message);
             return;
         }
-        console.log('기존 데이터가 모두 삭제되었습니다.');
+        console.log('기존 DB 데이터가 모두 삭제되었습니다.');
+
+        // 1-1. 로컬 캐시 파일 초기화 (이전 완료 상태 찌꺼기 제거)
+        const CACHE_FILE = 'completed_cache.json';
+        if (fs.existsSync(CACHE_FILE)) {
+            try {
+                fs.unlinkSync(CACHE_FILE);
+                console.log('로컬 캐시 파일(완료 기록)도 깔끔하게 지웠습니다.');
+            } catch (err) {
+                console.error('로컬 캐시 삭제 실패:', err.message);
+            }
+        }
 
         // 2. 로컬 파일 읽기
         console.log('--- [2/3] 새 데이터 준비 ---');
