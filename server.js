@@ -11,6 +11,7 @@ require('dotenv').config();
 const completedLocalCache = new Set();
 // 초기 로딩 속도 극대화를 위한 전역 메모리 캐시
 let globalCachedData = null;
+let excelLastModified = 0; // 엑셀 파일 수정 시간 추적용
 
 const app = express();
 app.use(cors());
@@ -140,23 +141,33 @@ app.get('/api/surveys', async (req, res) => {
     res.setHeader('Surrogate-Control', 'no-store');
 
     try {
-        if (globalCachedData) {
-            // 이미 메모리에 캐시된 데이터가 있다면 복잡한 파싱 및 DB조회 생략하고 즉시 응답 (속도 대폭 향상)
-            return res.json(globalCachedData);
-        }
-
         let data = [];
-        const fileNamesToTry = ['survey_data_v2.xlsx', '조사1.xlsx', '조사.xlsx'];
+        const fileNamesToTry = ['조사1.xlsx', 'survey_data_v2.xlsx', '조사.xlsx'];
         let excelFileFound = false;
+        let targetFilePath = null;
+        let targetFileStats = null;
 
         for (const fname of fileNamesToTry) {
             const filePath = path.join(__dirname, fname);
             if (fs.existsSync(filePath)) {
-                console.log(`Excel file found: ${filePath}. Parsing...`);
-                try {
-                    const workbook = xlsx.readFile(filePath);
-                    const sheetName = workbook.SheetNames[0];
-                    const rawData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: "" });
+                targetFilePath = filePath;
+                targetFileStats = fs.statSync(filePath);
+                break;
+            }
+        }
+
+        // 캐시 무효화 검사
+        if (targetFileStats && globalCachedData && excelLastModified === targetFileStats.mtimeMs) {
+            // 파일이 변경되지 않았고 메모리에 캐시된 데이터가 있다면 즉시 응답 (속도 대폭 향상)
+            return res.json(globalCachedData);
+        }
+
+        if (targetFilePath) {
+            console.log(`Excel file found: ${targetFilePath}. Parsing...`);
+            try {
+                const workbook = xlsx.readFile(targetFilePath);
+                const sheetName = workbook.SheetNames[0];
+                const rawData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: "" });
                     
                     const grouped = {};
                     rawData.forEach(row => {
@@ -248,12 +259,11 @@ app.get('/api/surveys', async (req, res) => {
                             detailLocation: Array.from(detailLocations).join(', ')
                         });
                     }
-                    excelFileFound = true;
-                    break;
-                } catch (err) {
-                    console.error("Excel parsing error:", err);
-                    return res.status(500).json({ error: "Excel parsing failed", details: err.message, stack: err.stack, file: filePath });
-                }
+                excelLastModified = targetFileStats.mtimeMs;
+                excelFileFound = true;
+            } catch (err) {
+                console.error("Excel parsing error:", err);
+                return res.status(500).json({ error: "Excel parsing failed", details: err.message, stack: err.stack, file: targetFilePath });
             }
         }
 
