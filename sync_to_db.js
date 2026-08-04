@@ -10,78 +10,108 @@ const supabase = createClient(
 
 async function syncData() {
     try {
-        console.log('--- 데이터 업로드 시작 ---');
+        console.log('--- 데이터 동기화 시작 ---');
         
-        // 2. 로컬 파일 읽기
-        if (!fs.existsSync('survey_data.json')) {
-            console.error('오류: survey_data.json 파일이 없습니다. 먼저 엑셀 분석을 진행해주세요.');
-            return;
+        let localRows = [];
+        const xlsxPath = fs.existsSync('조사1.xlsx') ? '조사1.xlsx' : (fs.existsSync('survey_data_v2.xlsx') ? 'survey_data_v2.xlsx' : null);
+        
+        if (xlsxPath) {
+            console.log(`엑셀 파일(${xlsxPath})에서 데이터 파싱 중...`);
+            const xlsx = require('xlsx');
+            const workbook = xlsx.readFile(xlsxPath);
+            const sheetName = workbook.SheetNames[0];
+            localRows = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: "" });
+        } else if (fs.existsSync('survey_data.json')) {
+            console.log('survey_data.json에서 데이터 읽는 중...');
+            const rawData = JSON.parse(fs.readFileSync('survey_data.json', 'utf-8'));
+            localRows = rawData.data || rawData;
         }
-
-        const rawData = JSON.parse(fs.readFileSync('survey_data.json', 'utf-8'));
-        const localRows = rawData.data || rawData;
 
         if (!localRows || localRows.length === 0) {
-            console.log('업로드할 데이터가 없습니다.');
+            console.log('동기화할 데이터가 없습니다.');
             return;
         }
 
-        console.log(`총 ${localRows.length}개의 데이터를 분석 중...`);
+        console.log(`총 ${localRows.length}개의 엑셀 데이터를 분석 중...`);
 
-        // 3. 컬럼 이름 매핑 (데이터베이스 컬럼명에 맞춰서 변환)
-        // 팁: DB 컬럼명에 공백이나 특수문자가 있으면 정확히 일치해야 합니다.
-        const rowsToUpload = localRows.map(row => {
-            // Supabase confirmed columns: 연번, 실태조사 완료여부, 시설명, 지번주소, 조사자, 조사일자
-            const mapped = {
-                '연번': row['연번'],
-                '실태조사 완료여부': row['실태조사 완료여부'] || '대기',
-                '시설명': row['시설명'],
-                '지번주소': row['지번주소'] || row['도로명주소'] || '주소 없음',
-                '조사자': row['조사자5'] || row['조사자'] || '미지정',
-                '조사일자': row['조사일자5'] || row['조사일자'] || null
-            };
-            return mapped;
-        });
-
-        // 4. 기존 DB에 있는 연번 목록 조회 (중복 추가 및 상태 덮어쓰기 방지)
-        console.log('기존 DB 데이터를 확인 중입니다...');
+        // 기존 DB 데이터 조회 (기존에 완료된 상태 보존용)
         const { data: existingData, error: fetchError } = await supabase
             .from('surveys')
-            .select('연번');
+            .select('*');
             
         if (fetchError) {
-            console.error('DB 조회 실패:', fetchError.message);
-            return;
+            console.error('기존 DB 조회 실패:', fetchError.message);
         }
         
-        const existingIds = new Set(existingData.map(row => row['연번']));
-        
-        // 5. DB에 없는 새로운 데이터만 필터링
-        const newRowsToUpload = rowsToUpload.filter(row => !existingIds.has(row['연번']));
-        
-        if (newRowsToUpload.length === 0) {
-            console.log('--- 완료 ---');
-            console.log('새롭게 추가할 데이터가 없습니다. (모든 데이터가 이미 DB에 존재합니다.)');
-            return;
+        const existingStatusMap = new Map();
+        const existingDateMap = new Map();
+        if (existingData) {
+            existingData.forEach(row => {
+                existingStatusMap.set(Number(row['연번']), row['실태조사 완료여부']);
+                existingDateMap.set(Number(row['연번']), row['조사일자']);
+            });
         }
         
-        console.log(`새로운 장소 ${newRowsToUpload.length}개를 DB에 추가합니다...`);
+        const rowsToUpload = localRows.map(row => {
+            const getVal = (prefixes) => {
+                for (const p of prefixes) {
+                    const key = Object.keys(row).find(k => k.toLowerCase().includes(p.toLowerCase()));
+                    if (key) return row[key];
+                }
+                return null;
+            };
 
-        // 6. Supabase로 새로운 데이터만 업로드 (Insert)
-        const { data, error } = await supabase
-            .from('surveys')
-            .insert(newRowsToUpload);
+            const id = Number(row['연번'] || row['id'] || row['ID']);
+            const existingStatus = existingStatusMap.get(id);
+            const existingDate = existingDateMap.get(id);
 
-        if (error) {
-            console.error('업로드 실패 상세 정보:');
-            console.error(`에러 메시지: ${error.message}`);
-            console.error(`에러 코드: ${error.code}`);
-            console.error('도움말: Supabase 테이블의 컬럼 이름이 [연번, 실태조사 완료여부, 시설명, 지번주소, 조사자, 조사일자]와 일치하는지 확인하세요.');
-            return;
+            return {
+                '연번': id,
+                '실태조사 완료여부': existingStatus || row['실태조사 완료여부'] || '대기',
+                '시설명': row['시설명'] || row['명칭'] || getVal(['시설', 'name']) || '알 수 없음',
+                '지번주소': row['지번주소'] || row['도로명주소'] || getVal(['주소', 'address']) || '주소 없음',
+                '조사자': row['조사자5'] || row['조사자'] || getVal(['조사', 'surveyor']) || '미지정',
+                '조사일자': existingDate || row['조사일자5'] || row['조사일자'] || null
+            };
+        }).filter(r => Boolean(r['연번']));
+
+        const existingIds = new Set(existingData ? existingData.map(r => Number(r['연번'])) : []);
+        
+        const newRows = [];
+        const updateRows = [];
+
+        rowsToUpload.forEach(row => {
+            if (existingIds.has(row['연번'])) {
+                updateRows.push(row);
+            } else {
+                newRows.push(row);
+            }
+        });
+
+        if (newRows.length > 0) {
+            console.log(`새로운 장소 ${newRows.length}개를 DB에 추가합니다...`);
+            const { error: insertErr } = await supabase.from('surveys').insert(newRows);
+            if (insertErr) {
+                console.error('새 데이터 insert 실패:', insertErr.message);
+            } else {
+                console.log(`새로운 ${newRows.length}개 장소 추가 성공!`);
+            }
         }
 
-        console.log('--- 업로드 완료! ---');
-        console.log(`${newRowsToUpload.length}개의 새로운 장소가 성공적으로 DB에 등록되었습니다.`);
+        if (updateRows.length > 0) {
+            console.log(`기존 장소 ${updateRows.length}개의 데이터 업데이트 처리 중...`);
+            // 정보 업데이트가 필요한 행들을 묶어서 처리
+            for (const row of updateRows) {
+                await supabase.from('surveys').update({
+                    '시설명': row['시설명'],
+                    '지번주소': row['지번주소'],
+                    '조사자': row['조사자']
+                }).eq('연번', row['연번']);
+            }
+            console.log(`기존 ${updateRows.length}개 장소 정보 갱신 완료!`);
+        }
+
+        console.log('--- 동기화 완료! ---');
 
     } catch (e) {
         console.error('예기치 못한 오류 발생:', e.message);
@@ -89,3 +119,4 @@ async function syncData() {
 }
 
 syncData();
+

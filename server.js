@@ -198,6 +198,7 @@ app.get('/api/surveys', async (req, res) => {
                         let firstSurveyor = '';
                         let firstStatus = '';
                         let firstId = 0;
+                        const allRowIds = [];
                         
                         rows.forEach(row => {
                             const getVal = (prefixes) => {
@@ -208,10 +209,12 @@ app.get('/api/surveys', async (req, res) => {
                                 return null;
                             };
                             
+                            const rowId = Number(row['연번'] || row['id'] || row['ID'] || 0);
+                            if (rowId && !allRowIds.includes(rowId)) allRowIds.push(rowId);
+
                             const bVal = (row['시설명'] || row['명칭'] || getVal(['시설', 'name']) || '').toString().trim();
                             const hVal = (row['통합본'] || '').toString().trim();
                             if (bVal) {
-                                // H열(통합본) 값이 존재하면, B열 내용에 포함되어 있더라도 무조건 괄호로 추가
                                 const combined = hVal && bVal !== hVal ? `${bVal}\n(${hVal})` : bVal;
                                 if (!nameList.includes(combined)) nameList.push(combined);
                             }
@@ -233,13 +236,12 @@ app.get('/api/surveys', async (req, res) => {
                             
                             if (!firstSurveyor) firstSurveyor = (row['조사자'] || row['조사자5'] || getVal(['조사', 'surveyor']) || '').toString().trim();
                             if (!firstStatus) firstStatus = (row['실태조사 완료여부'] || row['완료여부'] || getVal(['완료', 'status']) || '').toString().trim();
-                            if (!firstId) firstId = row['연번'] || row['id'] || row['ID'] || 0;
+                            if (!firstId) firstId = rowId;
                         });
                         
-                        // 이미 ':' 가 포함된 문자열(그룹화된 텍스트)이면 카운트하지 않고 그대로 합침
                         const countOccurrences = (arr) => {
                             if (arr.length > 0 && arr[0].includes(':')) {
-                                return arr.join(', '); // 이미 카운트 된 문자열
+                                return arr.join(', ');
                             }
                             const counts = {};
                             arr.forEach(x => { counts[x] = (counts[x] || 0) + 1; });
@@ -248,6 +250,7 @@ app.get('/api/surveys', async (req, res) => {
                         
                         data.push({
                             id: firstId || idCounter++,
+                            allRowIds: allRowIds.length > 0 ? allRowIds : [firstId || idCounter],
                             status: firstStatus || '대기',
                             name: nameList.length > 0 ? nameList[0] : '알 수 없음',
                             address: address,
@@ -270,77 +273,54 @@ app.get('/api/surveys', async (req, res) => {
         if (!excelFileFound) {
             return res.status(500).json({ error: "No excel file found. Tried: " + fileNamesToTry.join(', ') });
         }
-        /* Fallback logic disabled for debugging
-            let { data: sbData, error } = await supabase
-                .from('surveys')
-                .select('*')
-                .order('연번', { ascending: true });
-
-            if (error || !sbData || sbData.length === 0) {
-                console.log("Supabase empty or error, falling back to local survey_data.json");
-                if (fs.existsSync('survey_data.json')) {
-                    const localData = JSON.parse(fs.readFileSync('survey_data.json', 'utf-8'));
-                    sbData = localData.data || localData;
-                } else {
-                    sbData = [];
-                }
-            }
-            
-            data = sbData.map(row => {
-                const getVal = (prefixes) => {
-                    for (const p of prefixes) {
-                        const key = Object.keys(row).find(k => k.toLowerCase().includes(p.toLowerCase()));
-                        if (key) return row[key];
-                    }
-                    return null;
-                };
-
-                const address = row['지번주소'] || row['도로명주소'] || getVal(['주소', 'address']);
-                return {
-                    id: row['연번'] || row['id'] || row['ID'] || 0,
-                    status: row['실태조사 완료여부'] || row['완료여부'] || getVal(['완료', 'status']) || '대기',
-                    name: row['시설명'] || row['명칭'] || getVal(['시설', 'name']) || '알 수 없음',
-                    address: address || '주소 없음',
-                    surveyor: row['조사자'] || row['조사자5'] || getVal(['조사', 'surveyor']) || '미지정'
-                };
-            });
-        */
 
         if (data && data.length > 0) {
-            console.log(`Processing ${data.length} surveys...`);
+            console.log(`Processing ${data.length} survey markers...`);
             
             // DB에서 '완료' 처리된 목록을 가져와 엑셀 데이터에 병합(Merge)
             try {
                 if (supabase) {
+                    // 구문 오류 수정: select('*') 사용으로 컬럼명 공백 에러(42703) 원천 방지
                     const { data: sbData, error } = await supabase
                         .from('surveys')
-                        .select('연번, 실태조사 완료여부')
+                        .select('*')
                         .eq('실태조사 완료여부', '완료');
                     
-                    if (!error && sbData && sbData.length > 0) {
-                        const completedIds = new Set(sbData.map(r => r['연번']));
+                    if (error) {
+                        console.error("Supabase select error:", error.message);
+                    } else if (sbData && sbData.length > 0) {
+                        const completedIds = new Set(sbData.map(r => Number(r['연번'])));
                         data.forEach(item => {
-                            if (completedIds.has(item.id)) {
-                                completedLocalCache.add(item.id); // DB 정보를 로컬 캐시에 백업
+                            const isCompleted = item.allRowIds && item.allRowIds.length > 0
+                                ? item.allRowIds.some(id => completedIds.has(Number(id)))
+                                : completedIds.has(Number(item.id));
+
+                            if (isCompleted) {
+                                completedLocalCache.add(item.id);
                                 item.status = '완료';
                             }
                         });
-                        console.log(`Merged ${completedIds.size} completed status from database.`);
-                        saveCompletedCache(); // Save merged cache to file
+                        console.log(`Merged ${completedIds.size} completed status records from Supabase database.`);
+                        saveCompletedCache();
+                    } else {
+                        console.log("No completed rows returned from Supabase database.");
                     }
                 }
             } catch (dbErr) {
                 console.error("Supabase merge error:", dbErr.message);
             }
             
-            // 2차 백업 머지: DB 접속 실패/무시 상황을 대비해 로컬 캐시(메모리)에 있는 완료 상태 강제 덮어쓰기
+            // 2차 백업 머지: DB 접속 실패 상황 대비 로컬 메모리 캐시 덮어쓰기
             if (completedLocalCache.size > 0) {
                 data.forEach(item => {
-                    if (completedLocalCache.has(item.id)) {
+                    const isCompletedInLocal = item.allRowIds && item.allRowIds.length > 0
+                        ? item.allRowIds.some(id => completedLocalCache.has(id))
+                        : completedLocalCache.has(item.id);
+                    if (isCompletedInLocal) {
                         item.status = '완료';
                     }
                 });
-                console.log(`Merged ${completedLocalCache.size} completed status from local fallback cache.`);
+                console.log(`Merged completed status from local fallback cache.`);
             }
         }
 
@@ -367,7 +347,6 @@ app.get('/api/surveys', async (req, res) => {
         const validCoordsCount = surveysWithCoords.filter(s => s.lat).length;
         console.log(`Loaded ${surveysWithCoords.length} surveys. Valid coords: ${validCoordsCount}`);
         
-        // 완성된 데이터를 전역 변수에 저장하여 다음 요청부터는 0.01초만에 응답하도록 처리
         globalCachedData = surveysWithCoords;
 
         res.json(surveysWithCoords);
@@ -382,17 +361,20 @@ app.post('/api/surveys/:id/complete', async (req, res) => {
     const today = new Date().toISOString().split('T')[0];
     
     try {
-        // 1. 메모리 캐시에 즉각 저장 (DB가 죽어도 새로고침 시 유지되도록)
-        completedLocalCache.add(id);
-        saveCompletedCache();
-
-        // 1-1. 전역 응답 캐시(초기 로딩 속도 최적화용)에도 상태를 즉각 반영
+        let targetIds = [id];
         if (globalCachedData) {
             const cachedItem = globalCachedData.find(s => s.id === id);
-            if (cachedItem) cachedItem.status = '완료';
+            if (cachedItem) {
+                cachedItem.status = '완료';
+                if (cachedItem.allRowIds && cachedItem.allRowIds.length > 0) {
+                    targetIds = cachedItem.allRowIds;
+                }
+            }
         }
 
-        // 2. Update status in Supabase table (에러 발생 시에도 프론트엔드 UI 업데이트를 위해 무시)
+        targetIds.forEach(tId => completedLocalCache.add(tId));
+        saveCompletedCache();
+
         try {
             const { data, error } = await supabase
                 .from('surveys')
@@ -400,19 +382,20 @@ app.post('/api/surveys/:id/complete', async (req, res) => {
                     '실태조사 완료여부': '완료',
                     '조사일자': today 
                 })
-                .eq('연번', id); 
+                .in('연번', targetIds); 
             if (error) {
                 console.error("Supabase update error:", error.message || error);
+            } else {
+                console.log(`Supabase successfully updated IDs [${targetIds.join(', ')}] to 완료.`);
             }
         } catch (dbErr) {
-            console.log("Supabase update failed but ignored for UI:", dbErr.message);
+            console.log("Supabase update failed:", dbErr.message);
         }
 
-        console.log(`Successfully processed ID ${id}.`);
-        res.json({ success: true, id, status: '완료' });
+        res.json({ success: true, id, targetIds, status: '완료' });
     } catch (e) {
         console.error("Update error:", e.message);
-        res.json({ success: true, id, status: '완료', warning: e.message }); // 강제 성공 반환
+        res.json({ success: true, id, status: '완료', warning: e.message });
     }
 });
 
@@ -420,17 +403,20 @@ app.post('/api/surveys/:id/reset', async (req, res) => {
     const id = parseInt(req.params.id);
     
     try {
-        // 1. 메모리 캐시에서 ID 삭제 (새로고침 시 대기 상태로 읽히도록)
-        completedLocalCache.delete(id);
-        saveCompletedCache();
-
-        // 1-1. 전역 응답 캐시에도 상태를 '대기'로 즉각 복구
+        let targetIds = [id];
         if (globalCachedData) {
             const cachedItem = globalCachedData.find(s => s.id === id);
-            if (cachedItem) cachedItem.status = '대기';
+            if (cachedItem) {
+                cachedItem.status = '대기';
+                if (cachedItem.allRowIds && cachedItem.allRowIds.length > 0) {
+                    targetIds = cachedItem.allRowIds;
+                }
+            }
         }
 
-        // 2. Update status in Supabase table (DB가 살아있다면 DB도 대기로 되돌림)
+        targetIds.forEach(tId => completedLocalCache.delete(tId));
+        saveCompletedCache();
+
         try {
             const { data, error } = await supabase
                 .from('surveys')
@@ -438,19 +424,20 @@ app.post('/api/surveys/:id/reset', async (req, res) => {
                     '실태조사 완료여부': '대기',
                     '조사일자': null 
                 })
-                .eq('연번', id); 
+                .in('연번', targetIds); 
             if (error) {
                 console.error("Supabase reset error:", error.message || error);
+            } else {
+                console.log(`Supabase successfully reset IDs [${targetIds.join(', ')}] to 대기.`);
             }
         } catch (dbErr) {
-            console.log("Supabase reset failed but ignored for UI:", dbErr.message);
+            console.log("Supabase reset failed:", dbErr.message);
         }
 
-        console.log(`Successfully reset ID ${id} to 대기.`);
-        res.json({ success: true, id, status: '대기' });
+        res.json({ success: true, id, targetIds, status: '대기' });
     } catch (e) {
         console.error("Reset error:", e.message);
-        res.json({ success: true, id, status: '대기', warning: e.message }); // 강제 성공 반환
+        res.json({ success: true, id, status: '대기', warning: e.message });
     }
 });
 
