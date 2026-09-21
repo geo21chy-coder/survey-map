@@ -69,18 +69,39 @@ app.get('/api/health', (req, res) => {
     });
 });
 
-// Supabase 및 Render 자동 휴면 방지(Keep-Alive) 엔드포인트
-app.get('/api/keepalive', async (req, res) => {
+// Supabase 및 Render 자동 휴면 방지(Keep-Alive) 엔드포인트 (GET, HEAD, POST 등 모든 방식 수용)
+app.all('/api/keepalive', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
     try {
-        // Supabase에 아주 가벼운 쿼리를 날려 활동(Activity)을 발생시킴
-        const { data, error } = await supabase.from('surveys').select('연번').limit(1);
-        res.json({
+        // Supabase에 아주 가벼운 쿼리(select '*')를 날려 DB Activity 발생
+        let pingStatus = 'success';
+        let pingError = null;
+
+        if (supabase) {
+            const { data, error } = await supabase.from('surveys').select('*').limit(1);
+            if (error) {
+                pingStatus = 'error';
+                pingError = error.message;
+            }
+        }
+
+        res.status(200).json({
             status: 'awake',
             time: new Date().toISOString(),
-            supabase_ping: error ? 'error' : 'success'
+            supabase_ping: pingStatus,
+            error: pingError
         });
     } catch (e) {
-        res.status(500).json({ error: e.message });
+        // 크론잡 서비스(cron-job.org)의 HTTP Error로 인한 Inactive 전환 방지를 위해 200 반환
+        res.status(200).json({
+            status: 'awake',
+            time: new Date().toISOString(),
+            supabase_ping: 'exception',
+            error: e.message
+        });
     }
 });
 
